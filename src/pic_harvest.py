@@ -11,8 +11,9 @@ os.environ['SSL_CERT_FILE'] = certifi.where()
 class PicHarvest:
     base_url: str
     formats: list[str]
+    pages_urls: list[str]
+    pics_urls: set[str]
     sitemap: str
-    urls: list[str]
 
     def __init__(self, base_url: str, formats: list[str]):
         self.base_url = base_url
@@ -24,13 +25,13 @@ class PicHarvest:
         robot_parser.read()
         self.sitemap = robot_parser.site_maps()[0]
 
-    def get_urls(self):
+    def get_pages_urls(self):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'}
         r = requests.get(self.sitemap, headers=headers)
         r.raise_for_status()
         soup = BeautifulSoup(r.content, 'xml')
         pags = soup.find_all('url')
-        self.urls = [p.find("loc").text for p in pags]
+        self.pages_urls = [p.find("loc").text for p in pags]
 
     def get_pics_url_from_url(url):
         pass
