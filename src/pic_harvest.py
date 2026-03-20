@@ -15,9 +15,13 @@ class PicHarvest:
     pics_urls: set[str]
     sitemap: str
 
-    def __init__(self, base_url: str, formats: list[str]):
+    def __init__(self, base_url: str, formats: list[str] = None):
         self.base_url = base_url
-        self.formats = formats
+        self.formats = formats if formats else [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+
+    def init(self):
+        self.get_sitemap()
+        self.get_pages_urls()
 
     def get_sitemap(self):
         robot_parser = robotparser.RobotFileParser()
