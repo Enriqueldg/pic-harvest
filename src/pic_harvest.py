@@ -1,43 +1,73 @@
+import io
 import os
 from urllib import robotparser
 from urllib.parse import urljoin, urlparse
-import io
-from PIL import Image
+
 import certifi
 import requests
 from bs4 import BeautifulSoup
+from PIL import Image
 
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 os.environ['SSL_CERT_FILE'] = certifi.where()
+
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'}
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
 
 class PicHarvest:
     base_url: str
     formats: list[str]
     pages_urls: list[str]
     pics_urls: list[str]
-    sitemap: str
+    sitemaps: list[str]
 
     def __init__(self, base_url: str, formats: list[str] = None):
         self.base_url = base_url
         self.formats = formats if formats else [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 
-        self.get_sitemap()
+        self.get_sitemaps()
         self.get_pages()
 
-    def get_sitemap(self):
+    def get_sitemaps(self):
         robot_parser = robotparser.RobotFileParser()
-        robots_path = "/robots.txt"
-        robot_parser.set_url(urljoin(self.base_url, robots_path))
+        robot_parser.set_url(urljoin(self.base_url, "/robots.txt"))
         robot_parser.read()
-        self.sitemap = robot_parser.site_maps()[0]
+        found = robot_parser.site_maps() or []
+        if not found:
+            found = [urljoin(self.base_url, "/sitemap.xml")]
+        self.sitemaps = self._expand_sitemaps(found)
+
+    def _expand_sitemaps(self, urls: list[str]) -> list[str]:
+        """Recursively expand sitemap index files into individual sitemaps."""
+        leaf_sitemaps = []
+        for url in urls:
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=10)
+                r.raise_for_status()
+            except requests.RequestException:
+                continue
+            soup = BeautifulSoup(r.content, 'xml')
+            nested = soup.find_all('sitemap')
+            if nested:
+                nested_urls = [s.find('loc').text for s in nested if s.find('loc')]
+                leaf_sitemaps.extend(self._expand_sitemaps(nested_urls))
+            else:
+                leaf_sitemaps.append(url)
+        return leaf_sitemaps
 
     def get_pages(self):
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'}
-        r = requests.get(self.sitemap, headers=headers)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.content, 'xml')
-        pags = soup.find_all('url')
-        self.pages_urls = [p.find("loc").text for p in pags]
+        pages = []
+        for sitemap_url in self.sitemaps:
+            try:
+                r = requests.get(sitemap_url, headers=HEADERS, timeout=10)
+                r.raise_for_status()
+            except requests.RequestException:
+                continue
+            soup = BeautifulSoup(r.content, 'xml')
+            pages.extend(p.find('loc').text for p in soup.find_all('url') if p.find('loc'))
+        self.pages_urls = list(dict.fromkeys(pages))
 
     def get_all_pics_urls(self):
         pics_urls = list()
@@ -47,10 +77,7 @@ class PicHarvest:
 
     def get_pics_urls_from_page(self, url) -> list[str]:
         pics_urls = set()
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, headers=HEADERS, timeout=10)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
         for pic in soup.find_all('img'):
