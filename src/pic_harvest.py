@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 from pathlib import Path
 from urllib import robotparser
@@ -19,6 +20,9 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
+logger = logging.getLogger(__name__)
+
+
 class PicHarvest:
     base_url: str
     formats: list[str]
@@ -26,10 +30,22 @@ class PicHarvest:
     pics_urls: list[str]
     sitemaps: list[str]
 
-    def __init__(self, base_url: str, formats: list[str] = None):
+    def __init__(
+        self,
+        base_url: str,
+        formats: list[str] | None = None,
+        min_width: int = 300,
+        min_height: int = 300,
+    ):
         self.base_url = base_url
         self.formats = formats if formats else [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        self.min_width = min_width
+        self.min_height = min_height
+        self.sitemaps = []
+        self.pages_urls = []
+        self.pics_urls = []
 
+    def crawl(self):
         self.get_sitemaps()
         self.get_pages()
 
@@ -49,7 +65,8 @@ class PicHarvest:
             try:
                 r = requests.get(url, headers=HEADERS, timeout=10)
                 r.raise_for_status()
-            except requests.RequestException:
+            except requests.RequestException as e:
+                logger.warning("Failed to fetch sitemap %s: %s", url, e)
                 continue
             soup = BeautifulSoup(r.content, 'xml')
             nested = soup.find_all('sitemap')
@@ -66,7 +83,8 @@ class PicHarvest:
             try:
                 r = requests.get(sitemap_url, headers=HEADERS, timeout=10)
                 r.raise_for_status()
-            except requests.RequestException:
+            except requests.RequestException as e:
+                logger.warning("Failed to fetch sitemap page %s: %s", sitemap_url, e)
                 continue
             soup = BeautifulSoup(r.content, 'xml')
             pages.extend(p.find('loc').text for p in soup.find_all('url') if p.find('loc'))
@@ -106,23 +124,30 @@ class PicHarvest:
             self.download_pic_from_url(url)
 
     def download_pic_from_url(self, url: str):
-        with requests.get(url, timeout=10, stream=True) as r:
-            r.raise_for_status()
+        try:
+            r_ctx = requests.get(url, timeout=10, stream=True)
+            r_ctx.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning("Failed to download %s: %s", url, e)
+            return
+        with r_ctx:
             chunks = []
             size_known = False
-            for chunk in r.iter_content(chunk_size=4096):
+            for chunk in r_ctx.iter_content(chunk_size=4096):
                 chunks.append(chunk)
                 if not size_known:
                     try:
                         img = Image.open(io.BytesIO(b''.join(chunks)))
                         width, height = img.size
                         size_known = True
-                        if width < 300 or height < 300:
+                        if width < self.min_width or height < self.min_height:
+                            logger.debug("Skipping %s: dimensions %dx%d below threshold", url, width, height)
                             return
                     except Exception:
                         pass  # need more chunks to parse the header
 
             if not size_known:
+                logger.warning("Could not determine dimensions for %s", url)
                 return
 
             content = b''.join(chunks)
