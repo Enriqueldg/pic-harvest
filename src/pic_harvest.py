@@ -1,3 +1,4 @@
+import hashlib
 import io
 import logging
 import os
@@ -181,7 +182,13 @@ class PicHarvest:
                 return
 
             content = b''.join(chunks)
-            final_name = os.path.basename(url.split('?')[0])
-            with open(OUTPUT_DIR / final_name, 'wb') as f:
+            stem = os.path.basename(url.split('?')[0])
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+            final_name = f"{url_hash}_{stem}"
+            dest = OUTPUT_DIR / final_name
+            if dest.exists():
+                logger.debug("Skipping %s: already downloaded", url)
+                return
+            with open(dest, 'wb') as f:
                 f.write(content)
 
