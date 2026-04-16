@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+import time
 from pathlib import Path
 from urllib import robotparser
 from urllib.parse import urljoin, urlparse
@@ -21,6 +22,32 @@ HEADERS = {
 }
 
 logger = logging.getLogger(__name__)
+
+_MAX_SITEMAP_DEPTH = 5
+
+
+def _fetch(url: str, retries: int = 3, backoff: float = 1.0, **kwargs) -> requests.Response:
+    """GET a URL with exponential-backoff retries on transient errors."""
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(retries):
+        r = None
+        try:
+            r = requests.get(url, **kwargs)
+            r.raise_for_status()
+            return r
+        except requests.HTTPError as e:
+            if r is not None and r.status_code < 500:
+                raise  # 4xx — no point retrying
+            last_exc = e
+        except (requests.Timeout, requests.ConnectionError) as e:
+            last_exc = e
+        if r is not None:
+            r.close()
+        if attempt < retries - 1:
+            wait = backoff * (2 ** attempt)
+            logger.warning("Retrying %s in %.1fs (attempt %d/%d): %s", url, wait, attempt + 1, retries, last_exc)
+            time.sleep(wait)
+    raise last_exc
 
 
 class PicHarvest:
@@ -58,13 +85,15 @@ class PicHarvest:
             found = [urljoin(self.base_url, "/sitemap.xml")]
         self.sitemaps = self._expand_sitemaps(found)
 
-    def _expand_sitemaps(self, urls: list[str]) -> list[str]:
+    def _expand_sitemaps(self, urls: list[str], depth: int = 0) -> list[str]:
         """Recursively expand sitemap index files into individual sitemaps."""
+        if depth >= _MAX_SITEMAP_DEPTH:
+            logger.warning("Sitemap recursion limit (%d) reached, stopping expansion", _MAX_SITEMAP_DEPTH)
+            return []
         leaf_sitemaps = []
         for url in urls:
             try:
-                r = requests.get(url, headers=HEADERS, timeout=10)
-                r.raise_for_status()
+                r = _fetch(url, headers=HEADERS, timeout=10)
             except requests.RequestException as e:
                 logger.warning("Failed to fetch sitemap %s: %s", url, e)
                 continue
@@ -72,7 +101,7 @@ class PicHarvest:
             nested = soup.find_all('sitemap')
             if nested:
                 nested_urls = [s.find('loc').text for s in nested if s.find('loc')]
-                leaf_sitemaps.extend(self._expand_sitemaps(nested_urls))
+                leaf_sitemaps.extend(self._expand_sitemaps(nested_urls, depth=depth + 1))
             else:
                 leaf_sitemaps.append(url)
         return leaf_sitemaps
@@ -81,8 +110,7 @@ class PicHarvest:
         pages = []
         for sitemap_url in self.sitemaps:
             try:
-                r = requests.get(sitemap_url, headers=HEADERS, timeout=10)
-                r.raise_for_status()
+                r = _fetch(sitemap_url, headers=HEADERS, timeout=10)
             except requests.RequestException as e:
                 logger.warning("Failed to fetch sitemap page %s: %s", sitemap_url, e)
                 continue
@@ -98,8 +126,11 @@ class PicHarvest:
 
     def get_pics_urls_from_page(self, url) -> list[str]:
         pics_urls = set()
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        r.raise_for_status()
+        try:
+            r = _fetch(url, headers=HEADERS, timeout=10)
+        except requests.RequestException as e:
+            logger.warning("Failed to fetch page %s: %s", url, e)
+            return []
         soup = BeautifulSoup(r.text, 'html.parser')
         for pic in soup.find_all('img'):
             pic_url = (
@@ -125,8 +156,7 @@ class PicHarvest:
 
     def download_pic_from_url(self, url: str):
         try:
-            r_ctx = requests.get(url, timeout=10, stream=True)
-            r_ctx.raise_for_status()
+            r_ctx = _fetch(url, timeout=10, stream=True)
         except requests.RequestException as e:
             logger.warning("Failed to download %s: %s", url, e)
             return
