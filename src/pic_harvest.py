@@ -1,5 +1,6 @@
 import io
 import os
+from pathlib import Path
 from urllib import robotparser
 from urllib.parse import urljoin, urlparse
 
@@ -11,7 +12,9 @@ from PIL import Image
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'}
+OUTPUT_DIR = Path(__file__).parent.parent / "downloaded_pics"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
@@ -103,21 +106,27 @@ class PicHarvest:
             self.download_pic_from_url(url)
 
     def download_pic_from_url(self, url: str):
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        if r.status_code == 200:
-            content = r.content
-            is_valid = self.is_valid(content, min_width=300, min_height=300)
+        with requests.get(url, timeout=10, stream=True) as r:
+            r.raise_for_status()
+            chunks = []
+            size_known = False
+            for chunk in r.iter_content(chunk_size=4096):
+                chunks.append(chunk)
+                if not size_known:
+                    try:
+                        img = Image.open(io.BytesIO(b''.join(chunks)))
+                        width, height = img.size
+                        size_known = True
+                        if width < 300 or height < 300:
+                            return
+                    except Exception:
+                        pass  # need more chunks to parse the header
 
-            if is_valid:
-                final_name = os.path.basename(url.split('?')[0])
-                with open(f"/Users/kike/PycharmProjects/pic-harvest/downloaded_pics/{final_name}", 'wb') as f:
-                    f.write(content)
+            if not size_known:
+                return
 
-    def is_valid(self, binary_content, min_width=200, min_height=200):
-        try:
-            pic = Image.open(io.BytesIO(binary_content))
-            width, high = pic.size
-            return width >= min_width and high >= min_height
-        except Exception:
-            return False
+            content = b''.join(chunks)
+            final_name = os.path.basename(url.split('?')[0])
+            with open(OUTPUT_DIR / final_name, 'wb') as f:
+                f.write(content)
+
