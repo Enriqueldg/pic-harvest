@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib import robotparser
 from urllib.parse import urljoin, urlparse
@@ -119,11 +120,13 @@ class PicHarvest:
             pages.extend(p.find('loc').text for p in soup.find_all('url') if p.find('loc'))
         self.pages_urls = list(dict.fromkeys(pages))
 
-    def get_all_pics_urls(self):
-        pics_urls = list()
-        for page_url in self.pages_urls:
-            pics_urls.extend(self.get_pics_urls_from_page(page_url))
-        self.pics_urls = list(set(pics_urls))
+    def get_all_pics_urls(self, workers: int = 10):
+        pics_urls = set()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(self.get_pics_urls_from_page, url): url for url in self.pages_urls}
+            for future in as_completed(futures):
+                pics_urls.update(future.result())
+        self.pics_urls = list(pics_urls)
 
     def get_pics_urls_from_page(self, url) -> list[str]:
         pics_urls = set()
@@ -151,9 +154,11 @@ class PicHarvest:
                 pics_urls.add(full_url)
         return list(pics_urls)
 
-    def download_all_pics(self):
-        for url in self.pics_urls:
-            self.download_pic_from_url(url)
+    def download_all_pics(self, workers: int = 5):
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(self.download_pic_from_url, url): url for url in self.pics_urls}
+            for future in as_completed(futures):
+                future.result()
 
     def download_pic_from_url(self, url: str):
         try:
