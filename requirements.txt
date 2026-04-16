@@ -1,0 +1,5 @@
+beautifulsoup4>=4.14
+certifi>=2026.2
+lxml>=6.0
+Pillow>=12.1
+requests>=2.32
