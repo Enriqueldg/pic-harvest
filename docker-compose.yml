@@ -1,5 +1,7 @@
 services:
   pic-harvest:
     build: .
+    ports:
+      - "8000:8000"
     volumes:
       - ./pics:/app/pics
