@@ -1,5 +1,5 @@
 from pic_harvest import PicHarvest
 
-url = "https://www.warhammer-community.com"
+url = ""
 
 pic_harvest = PicHarvest(url)
