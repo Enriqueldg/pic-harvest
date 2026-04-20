@@ -1,5 +1,10 @@
 from pic_harvest import PicHarvest
 
-url = ""
+url = "https://www.warhammer-community.com"
 
-pic_harvest = PicHarvest(url)
+harvester = PicHarvest(url)
+harvester.crawl()
+harvester.get_pages()
+harvester.pages_urls = harvester.pages_urls[:2]
+harvester.get_all_pages_pics_urls()
+harvester.pics_urls = harvester.pics_urls[:3]

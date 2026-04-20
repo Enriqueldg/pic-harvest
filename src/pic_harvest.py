@@ -2,7 +2,6 @@ import hashlib
 import io
 import logging
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib import robotparser
@@ -13,43 +12,21 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 
+from utils import fetch
+
+logger = logging.getLogger(__name__)
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
-OUTPUT_DIR = Path(__file__).parent.parent / "downloaded_pics"
+OUTPUT_DIR_NAME = "pics"
+OUTPUT_DIR = Path(__file__).parent.parent / OUTPUT_DIR_NAME
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+DEFAULT_FORMATS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
-
-logger = logging.getLogger(__name__)
-
-_MAX_SITEMAP_DEPTH = 5
-
-
-def _fetch(url: str, retries: int = 3, backoff: float = 1.0, **kwargs) -> requests.Response:
-    """GET a URL with exponential-backoff retries on transient errors."""
-    last_exc: Exception = RuntimeError("no attempts made")
-    for attempt in range(retries):
-        r = None
-        try:
-            r = requests.get(url, **kwargs)
-            r.raise_for_status()
-            return r
-        except requests.HTTPError as e:
-            if r is not None and r.status_code < 500:
-                raise  # 4xx — no point retrying
-            last_exc = e
-        except (requests.Timeout, requests.ConnectionError) as e:
-            last_exc = e
-        if r is not None:
-            r.close()
-        if attempt < retries - 1:
-            wait = backoff * (2 ** attempt)
-            logger.warning("Retrying %s in %.1fs (attempt %d/%d): %s", url, wait, attempt + 1, retries, last_exc)
-            time.sleep(wait)
-    raise last_exc
+MAX_SITEMAP_DEPTH = 5
 
 
 class PicHarvest:
@@ -67,7 +44,7 @@ class PicHarvest:
         min_height: int = 300,
     ):
         self.base_url = base_url
-        self.formats = formats if formats else [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        self.formats = formats if formats else DEFAULT_FORMATS
         self.min_width = min_width
         self.min_height = min_height
         self.sitemaps = []
@@ -89,13 +66,13 @@ class PicHarvest:
 
     def _expand_sitemaps(self, urls: list[str], depth: int = 0) -> list[str]:
         """Recursively expand sitemap index files into individual sitemaps."""
-        if depth >= _MAX_SITEMAP_DEPTH:
-            logger.warning("Sitemap recursion limit (%d) reached, stopping expansion", _MAX_SITEMAP_DEPTH)
+        if depth >= MAX_SITEMAP_DEPTH:
+            logger.warning("Sitemap recursion limit (%d) reached, stopping expansion", MAX_SITEMAP_DEPTH)
             return []
         leaf_sitemaps = []
         for url in urls:
             try:
-                r = _fetch(url, headers=HEADERS, timeout=10)
+                r = fetch(url, headers=HEADERS, timeout=10)
             except requests.RequestException as e:
                 logger.warning("Failed to fetch sitemap %s: %s", url, e)
                 continue
@@ -112,7 +89,7 @@ class PicHarvest:
         pages = []
         for sitemap_url in self.sitemaps:
             try:
-                r = _fetch(sitemap_url, headers=HEADERS, timeout=10)
+                r = fetch(sitemap_url, headers=HEADERS, timeout=10)
             except requests.RequestException as e:
                 logger.warning("Failed to fetch sitemap page %s: %s", sitemap_url, e)
                 continue
@@ -120,7 +97,7 @@ class PicHarvest:
             pages.extend(p.find('loc').text for p in soup.find_all('url') if p.find('loc'))
         self.pages_urls = list(dict.fromkeys(pages))
 
-    def get_all_pics_urls(self, workers: int = 10):
+    def get_all_pages_pics_urls(self, workers: int = 10):
         pics_urls = set()
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(self.get_pics_urls_from_page, url): url for url in self.pages_urls}
@@ -131,7 +108,7 @@ class PicHarvest:
     def get_pics_urls_from_page(self, url) -> list[str]:
         pics_urls = set()
         try:
-            r = _fetch(url, headers=HEADERS, timeout=10)
+            r = fetch(url, headers=HEADERS, timeout=10)
         except requests.RequestException as e:
             logger.warning("Failed to fetch page %s: %s", url, e)
             return []
@@ -162,7 +139,7 @@ class PicHarvest:
 
     def download_pic_from_url(self, url: str):
         try:
-            r_ctx = _fetch(url, timeout=10, stream=True)
+            r_ctx = fetch(url, timeout=10, stream=True)
         except requests.RequestException as e:
             logger.warning("Failed to download %s: %s", url, e)
             return
