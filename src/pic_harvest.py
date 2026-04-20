@@ -42,11 +42,13 @@ class PicHarvest:
         formats: list[str] | None = None,
         min_width: int = 300,
         min_height: int = 300,
+        debug: bool = os.getenv("DEBUG", "").lower() in ("1", "true"),
     ):
         self.base_url = base_url
         self.formats = formats if formats else DEFAULT_FORMATS
         self.min_width = min_width
         self.min_height = min_height
+        self.debug = debug
         self.sitemaps = []
         self.pages_urls = []
         self.pics_urls = []
@@ -104,6 +106,9 @@ class PicHarvest:
             for future in as_completed(futures):
                 pics_urls.update(future.result())
         self.pics_urls = list(pics_urls)
+        if self.debug:
+            logger.debug("Debug mode: limiting pics_urls to first 5")
+            self.pics_urls = self.pics_urls[:5]
 
     def get_pics_urls_from_page(self, url) -> list[str]:
         pics_urls = set()
