@@ -4,13 +4,17 @@ import io
 import os
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
 
+import requests
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from PIL import Image
 from pydantic import BaseModel
 
-from pic_harvest import OUTPUT_DIR, PicHarvest
+from pic_harvest import PicHarvest
+from utils import fetch
 
 app = FastAPI(title="pic-harvest")
 
@@ -28,15 +32,8 @@ class Job:
     def __init__(self):
         self.status = Status.pending
         self.pic_urls: list[str] = []
+        self.pic_contents: dict[str, bytes] = {}  # filename -> bytes
         self.error: str | None = None
-
-    def filenames(self) -> list[str]:
-        return [self._url_to_filename(u) for u in self.pic_urls]
-
-    def _url_to_filename(url: str) -> str:
-        stem = os.path.basename(url.split("?")[0])
-        url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-        return f"{url_hash}_{stem}"
 
 
 class HarvestRequest(BaseModel):
@@ -46,6 +43,29 @@ class HarvestRequest(BaseModel):
     min_height: int = 300
 
 
+def _url_to_filename(url: str) -> str:
+    stem = os.path.basename(url.split("?")[0])
+    url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+    return f"{url_hash}_{stem}"
+
+
+def _fetch_pic_to_memory(url: str, min_width: int, min_height: int) -> tuple[str, bytes] | None:
+    """Download a single image into memory, returning (filename, content) or None if filtered out."""
+    try:
+        r = fetch(url, timeout=10)
+    except requests.RequestException:
+        return None
+    content = r.content
+    try:
+        img = Image.open(io.BytesIO(content))
+        width, height = img.size
+        if width < min_width or height < min_height:
+            return None
+    except Exception:
+        return None
+    return _url_to_filename(url), content
+
+
 def _run_harvest(job_id: str, req: HarvestRequest) -> None:
     job = _jobs[job_id]
     job.status = Status.running
@@ -53,8 +73,19 @@ def _run_harvest(job_id: str, req: HarvestRequest) -> None:
         h = PicHarvest(req.url, req.formats, req.min_width, req.min_height)
         h.crawl()
         h.get_all_pages_pics_urls()
-        h.download_all_pics()
         job.pic_urls = h.pics_urls
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {
+                pool.submit(_fetch_pic_to_memory, url, req.min_width, req.min_height): url
+                for url in h.pics_urls
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    filename, content = result
+                    job.pic_contents[filename] = content
+
         job.status = Status.done
     except Exception as exc:
         job.status = Status.failed
@@ -76,7 +107,7 @@ async def create_job(req: HarvestRequest, background_tasks: BackgroundTasks):
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
     job = _get_job_or_404(job_id)
-    return {"status": job.status, "pics": job.filenames(), "error": job.error}
+    return {"status": job.status, "pics": list(job.pic_contents.keys()), "error": job.error}
 
 
 @app.get("/jobs/{job_id}/pics")
@@ -87,12 +118,15 @@ def get_pic_urls(job_id: str):
     return {"pics": job.pic_urls}
 
 
-@app.get("/pics/{filename}")
-def download_pic(filename: str):
-    path = (OUTPUT_DIR / filename).resolve()
-    if not path.is_relative_to(OUTPUT_DIR.resolve()) or not path.is_file():
+@app.get("/jobs/{job_id}/pics/{filename}")
+def download_pic(job_id: str, filename: str):
+    job = _get_job_or_404(job_id)
+    content = job.pic_contents.get(filename)
+    if not content:
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path, filename=filename)
+    return Response(content=content, media_type="image/*", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    })
 
 
 @app.get("/jobs/{job_id}/download")
@@ -104,10 +138,8 @@ def download_zip(job_id: str):
     def _iter_zip():
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for filename in job.filenames():
-                path = OUTPUT_DIR / filename
-                if path.is_file():
-                    zf.write(path, filename)
+            for filename, content in job.pic_contents.items():
+                zf.writestr(filename, content)
         buf.seek(0)
         yield from buf
 
