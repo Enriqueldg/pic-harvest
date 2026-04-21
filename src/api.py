@@ -6,17 +6,27 @@ import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
+from pathlib import Path
 
 import requests
 from fastapi import BackgroundTasks, FastAPI, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 
 from pic_harvest import PicHarvest
 from utils import fetch
 
+_STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="pic-harvest")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(_STATIC_DIR / "index.html")
 
 _jobs: dict[str, "Job"] = {}
 
@@ -124,9 +134,7 @@ def download_pic(job_id: str, filename: str):
     content = job.pic_contents.get(filename)
     if not content:
         raise HTTPException(status_code=404, detail="File not found")
-    return Response(content=content, media_type="image/*", headers={
-        "Content-Disposition": f'attachment; filename="{filename}"'
-    })
+    return Response(content=content, media_type="image/*")
 
 
 @app.get("/jobs/{job_id}/download")

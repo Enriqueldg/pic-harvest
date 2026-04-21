@@ -22,7 +22,7 @@ OUTPUT_DIR_NAME = "pics"
 OUTPUT_DIR = Path(__file__).parent.parent / OUTPUT_DIR_NAME
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-DEFAULT_FORMATS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+DEFAULT_FORMATS = [".gif", ".ico", ".jpg", ".jpeg", ".png", ".svg", ".webp"]
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }

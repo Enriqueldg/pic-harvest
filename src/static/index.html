@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pic-harvest</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f4f5;
+      --surface: #ffffff;
+      --border: #e4e4e7;
+      --text: #18181b;
+      --muted: #71717a;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --warning: #d97706;
+      --radius: 8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      max-width: 900px;
+      margin: 0 auto 2rem;
+    }
+
+    header h1 { font-size: 1.5rem; font-weight: 700; }
+    header p  { color: var(--muted); margin-top: .25rem; font-size: .9rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      max-width: 900px;
+      margin: 0 auto 1.25rem;
+    }
+
+    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+
+    label { display: block; font-size: .85rem; font-weight: 500; margin-bottom: .35rem; }
+
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: .5rem .75rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: .9rem;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    .formats { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+    .formats label {
+      display: flex; align-items: center; gap: .35rem;
+      font-weight: 400; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 999px; padding: .25rem .75rem;
+      font-size: .82rem; user-select: none;
+      transition: background .15s, border-color .15s;
+    }
+    .formats input[type="checkbox"] { accent-color: var(--accent); }
+    .formats label:has(input:checked) { background: #eff6ff; border-color: var(--accent); color: var(--accent); }
+
+    .field { margin-bottom: 1rem; }
+    .field:last-child { margin-bottom: 0; }
+
+    button.primary {
+      background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius);
+      padding: .6rem 1.25rem; font-size: .9rem; font-weight: 500;
+      cursor: pointer; transition: background .15s;
+    }
+    button.primary:hover { background: var(--accent-hover); }
+    button.primary:disabled { background: var(--muted); cursor: not-allowed; }
+
+    button.outline {
+      background: transparent; color: var(--accent);
+      border: 1px solid var(--accent); border-radius: var(--radius);
+      padding: .45rem 1rem; font-size: .82rem; font-weight: 500;
+      cursor: pointer; transition: background .15s;
+    }
+    button.outline:hover { background: #eff6ff; }
+
+    .badge {
+      display: inline-block; border-radius: 999px;
+      padding: .2rem .75rem; font-size: .78rem; font-weight: 600;
+    }
+    .badge.pending  { background: #fef3c7; color: var(--warning); }
+    .badge.running  { background: #dbeafe; color: var(--accent);  }
+    .badge.done     { background: #dcfce7; color: var(--success); }
+    .badge.failed   { background: #fee2e2; color: var(--danger);  }
+
+    .status-row { display: flex; align-items: center; gap: .75rem; }
+    .status-row small { color: var(--muted); font-size: .82rem; }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: .75rem;
+      margin-top: 1rem;
+    }
+
+    .thumb {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+    }
+
+    .thumb img {
+      width: 100%; aspect-ratio: 1;
+      object-fit: cover; display: block;
+      background: var(--bg);
+    }
+
+    .thumb-footer {
+      padding: .4rem .5rem;
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid var(--border);
+    }
+
+    .thumb-footer span {
+      font-size: .72rem; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 80%;
+    }
+
+    .thumb-footer a {
+      color: var(--accent); font-size: .75rem; text-decoration: none; flex-shrink: 0;
+    }
+    .thumb-footer a:hover { text-decoration: underline; }
+
+    .toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: .5rem;
+    }
+    .toolbar small { color: var(--muted); font-size: .85rem; }
+
+    .error-msg { color: var(--danger); font-size: .85rem; margin-top: .5rem; }
+
+    #status-card, #results-card { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>pic-harvest</h1>
+  <p>Crawl a website and collect images that meet your size criteria.</p>
+</header>
+
+<div class="card">
+  <h2>New harvest</h2>
+  <div class="field">
+    <label for="url">Website URL</label>
+    <input type="text" id="url" placeholder="https://example.com" />
+  </div>
+  <div class="row field">
+    <div>
+      <label for="min-width">Min width (px)</label>
+      <input type="number" id="min-width" value="300" min="1" />
+    </div>
+    <div>
+      <label for="min-height">Min height (px)</label>
+      <input type="number" id="min-height" value="300" min="1" />
+    </div>
+  </div>
+  <div class="field">
+    <label>Formats</label>
+    <div class="formats" id="formats">
+      <label><input type="checkbox" value=".jpg" checked> .jpg</label>
+      <label><input type="checkbox" value=".jpeg" checked> .jpeg</label>
+      <label><input type="checkbox" value=".png" checked> .png</label>
+      <label><input type="checkbox" value=".webp" checked> .webp</label>
+      <label><input type="checkbox" value=".gif"> .gif</label>
+      <label><input type="checkbox" value=".svg"> .svg</label>
+      <label><input type="checkbox" value=".ico"> .ico</label>
+    </div>
+  </div>
+  <button class="primary" id="harvest-btn" onclick="startHarvest()">Harvest</button>
+  <p class="error-msg" id="form-error"></p>
+</div>
+
+<div class="card" id="status-card">
+  <h2>Job status</h2>
+  <div class="status-row">
+    <div class="spinner" id="spinner"></div>
+    <span class="badge" id="status-badge">pending</span>
+    <small id="job-id-label"></small>
+  </div>
+  <p class="error-msg" id="job-error"></p>
+</div>
+
+<div class="card" id="results-card">
+  <div class="toolbar">
+    <h2 id="results-title">Images</h2>
+    <button class="outline" id="download-all-btn">Download all (.zip)</button>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  let pollTimer = null;
+  let currentJobId = null;
+
+  async function startHarvest() {
+    const url = document.getElementById('url').value.trim();
+    const formError = document.getElementById('form-error');
+    formError.textContent = '';
+
+    if (!url) { formError.textContent = 'Please enter a URL.'; return; }
+
+    const formats = [...document.querySelectorAll('#formats input:checked')].map(el => el.value);
+    if (!formats.length) { formError.textContent = 'Select at least one format.'; return; }
+
+    const btn = document.getElementById('harvest-btn');
+    btn.disabled = true;
+
+    const body = {
+      url,
+      formats,
+      min_width: parseInt(document.getElementById('min-width').value) || 300,
+      min_height: parseInt(document.getElementById('min-height').value) || 300,
+    };
+
+    try {
+      const res = await fetch('/jobs', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(await res.text());
+      const { job_id } = await res.json();
+      currentJobId = job_id;
+      showStatus(job_id);
+      pollStatus(job_id);
+    } catch (e) {
+      formError.textContent = `Failed to start job: ${e.message}`;
+      btn.disabled = false;
+    }
+  }
+
+  function showStatus(job_id) {
+    document.getElementById('status-card').style.display = 'block';
+    document.getElementById('results-card').style.display = 'none';
+    document.getElementById('grid').innerHTML = '';
+    document.getElementById('job-id-label').textContent = `job: ${job_id}`;
+    document.getElementById('job-error').textContent = '';
+    setBadge('pending');
+  }
+
+  function pollStatus(job_id) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/jobs/${job_id}`);
+        const data = await res.json();
+        setBadge(data.status);
+
+        if (data.status === 'done') {
+          clearInterval(pollTimer);
+          document.getElementById('spinner').style.display = 'none';
+          showResults(job_id, data.pics);
+          document.getElementById('harvest-btn').disabled = false;
+        } else if (data.status === 'failed') {
+          clearInterval(pollTimer);
+          document.getElementById('spinner').style.display = 'none';
+          document.getElementById('job-error').textContent = data.error || 'Job failed.';
+          document.getElementById('harvest-btn').disabled = false;
+        }
+      } catch (e) {
+        clearInterval(pollTimer);
+        document.getElementById('job-error').textContent = `Polling error: ${e.message}`;
+        document.getElementById('harvest-btn').disabled = false;
+      }
+    }, 2000);
+  }
+
+  function setBadge(status) {
+    const badge = document.getElementById('status-badge');
+    badge.className = `badge ${status}`;
+    badge.textContent = status;
+  }
+
+  function showResults(job_id, filenames) {
+    const resultsCard = document.getElementById('results-card');
+    const grid = document.getElementById('grid');
+    resultsCard.style.display = 'block';
+
+    document.getElementById('results-title').textContent = `Images (${filenames.length})`;
+
+    document.getElementById('download-all-btn').onclick = () => {
+      window.location = `/jobs/${job_id}/download`;
+    };
+
+    grid.innerHTML = '';
+    if (!filenames.length) {
+      grid.innerHTML = '<p style="color:var(--muted);font-size:.85rem">No images found matching your criteria.</p>';
+      return;
+    }
+
+    for (const filename of filenames) {
+      const src = `/jobs/${job_id}/pics/${filename}`;
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      div.innerHTML = `
+        <img src="${src}" alt="${filename}" loading="lazy" onerror="this.style.opacity='.3'">
+        <div class="thumb-footer">
+          <span title="${filename}">${filename}</span>
+          <a href="${src}" download="${filename}">↓</a>
+        </div>`;
+      grid.appendChild(div);
+    }
+  }
+</script>
+</body>
+</html>
